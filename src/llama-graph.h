@@ -329,6 +329,8 @@ public:
     virtual ggml_tensor * get_logits()      = 0;
     virtual ggml_tensor * get_embd()        = 0;
     virtual ggml_tensor * get_embd_pooled() = 0;
+    virtual int attention_count() = 0;
+    virtual ggml_tensor * get_attention_index(int index) = 0;
 
     virtual void set_inputs(const llama_ubatch * ubatch) = 0;
 };
@@ -345,6 +347,12 @@ public:
     ggml_tensor * get_embd()        override { return t_embd; }
     ggml_tensor * get_embd_pooled() override { return t_embd_pooled; }
 
+    int attention_count() override { return attentions.size(); }
+
+    ggml_tensor * get_attention_index(int index) override { 
+        return attentions.at(index); 
+    }
+
     void set_inputs(const llama_ubatch * ubatch) override {
         for (auto & input : inputs) {
             input->set_input(ubatch);
@@ -356,6 +364,12 @@ public:
         return inputs.back().get();
     }
 
+    void add_attention_tensor(ggml_tensor * attention) {
+        ggml_set_output(attention);
+        
+        attentions.emplace_back(attention);
+    }
+
     // important graph nodes
     ggml_tensor * t_tokens      = nullptr;
     ggml_tensor * t_logits      = nullptr;
@@ -363,6 +377,7 @@ public:
     ggml_tensor * t_embd_pooled = nullptr;
 
     std::vector<llm_graph_input_ptr> inputs;
+    std::vector<ggml_tensor *> attentions;
 };
 
 //
@@ -392,6 +407,11 @@ struct llm_graph_params {
     int32_t n_outputs;
 
     const llm_graph_cb & cb;
+};
+
+struct attn_mha_result {
+    ggml_tensor* kqv;
+    ggml_tensor* kq;
 };
 
 struct llm_graph_context {
@@ -531,7 +551,7 @@ struct llm_graph_context {
     // attention
     //
 
-    ggml_tensor * build_attn_mha(
+    attn_mha_result build_attn_mha(
              ggml_cgraph * gf,
              ggml_tensor * q,       // [n_embd_head_q, n_head_q, n_tokens]
              ggml_tensor * k,       // [n_embd_head_k, n_head_k, n_tokens]
@@ -543,7 +563,7 @@ struct llm_graph_context {
 
     llm_graph_input_attn_no_cache * build_attn_inp_no_cache() const;
 
-    ggml_tensor * build_attn(
+    attn_mha_result build_attn(
             llm_graph_input_attn_no_cache * inp,
             ggml_cgraph * gf,
             ggml_tensor * wo,
@@ -558,7 +578,7 @@ struct llm_graph_context {
 
     llm_graph_input_attn_kv_unified * build_attn_inp_kv_unified() const;
 
-    ggml_tensor * build_attn(
+    attn_mha_result build_attn(
             llm_graph_input_attn_kv_unified * inp,
             ggml_cgraph * gf,
             ggml_tensor * wo,
@@ -573,7 +593,7 @@ struct llm_graph_context {
 
     llm_graph_input_attn_kv_unified_iswa * build_attn_inp_kv_unified_iswa() const;
 
-    ggml_tensor * build_attn(
+    attn_mha_result build_attn(
             llm_graph_input_attn_kv_unified_iswa * inp,
             ggml_cgraph * gf,
             ggml_tensor * wo,
@@ -588,7 +608,7 @@ struct llm_graph_context {
 
     llm_graph_input_attn_cross * build_attn_inp_cross() const;
 
-    ggml_tensor * build_attn(
+    attn_mha_result build_attn(
             llm_graph_input_attn_cross * inp,
             ggml_cgraph * gf,
             ggml_tensor * wo,

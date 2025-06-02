@@ -96,7 +96,7 @@ static bool ggml_debug(struct ggml_tensor * t, bool ask, void * user_data) {
     const struct ggml_tensor * src1 = t->src[1];
 
     if (ask) {
-        if (strcmp(t->name, "kq") == 0) {
+        if (strncmp(t->name, "kq_out", strlen("kq_out")) == 0) {
             return true; 
         }
         return false;

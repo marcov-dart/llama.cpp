@@ -33,6 +33,7 @@ struct llama_cparams {
     bool no_perf;
     bool warmup;
     bool op_offload;
+    bool output_attentions;
 
     enum llama_pooling_type pooling_type;
 

@@ -1059,7 +1059,7 @@ ggml_tensor * llm_graph_context::build_pos_bias(ggml_tensor * pos_bucket, ggml_t
     return pos_bias;
 }
 
-ggml_tensor * llm_graph_context::build_attn_mha(
+attn_mha_result llm_graph_context::build_attn_mha(
          ggml_cgraph * gf,
          ggml_tensor * q,
          ggml_tensor * k,
@@ -1079,6 +1079,7 @@ ggml_tensor * llm_graph_context::build_attn_mha(
     const auto n_kv     = k->ne[1];
 
     ggml_tensor * cur;
+    ggml_tensor * kq = nullptr;
 
     // TODO: replace hardcoded padding with ggml-provided padding
     if (cparams.flash_attn && (n_kv % 256 == 0) && kq_b == nullptr) {
@@ -1120,7 +1121,7 @@ ggml_tensor * llm_graph_context::build_attn_mha(
 
         cur = ggml_reshape_2d(ctx0, cur, cur->ne[0]*n_head, n_tokens);
     } else {
-        ggml_tensor * kq = ggml_mul_mat(ctx0, k, q);
+        kq = ggml_mul_mat(ctx0, k, q);
 
         // note: this op tends to require high floating point range
         //       while for some models F16 is enough, for others it is not, so we default to F32 here
@@ -1174,7 +1175,7 @@ ggml_tensor * llm_graph_context::build_attn_mha(
 
     ggml_build_forward_expand(gf, cur);
 
-    return cur;
+    return {cur, kq};
 }
 
 llm_graph_input_attn_no_cache * llm_graph_context::build_attn_inp_no_cache() const {
@@ -1190,7 +1191,7 @@ llm_graph_input_attn_no_cache * llm_graph_context::build_attn_inp_no_cache() con
     return (llm_graph_input_attn_no_cache *) res->add_input(std::move(inp));
 }
 
-ggml_tensor * llm_graph_context::build_attn(
+attn_mha_result llm_graph_context::build_attn(
         llm_graph_input_attn_no_cache * inp,
         ggml_cgraph * gf,
         ggml_tensor * wo,
@@ -1216,7 +1217,9 @@ ggml_tensor * llm_graph_context::build_attn(
     ggml_tensor * k = k_cur;
     ggml_tensor * v = v_cur;
 
-    ggml_tensor * cur = build_attn_mha(gf, q, k, v, kq_b, kq_mask, v_mla, kq_scale);
+    auto result = build_attn_mha(gf, q, k, v, kq_b, kq_mask, v_mla, kq_scale);
+    ggml_tensor * cur = result.kqv;
+
     cb(cur, "kqv_out", il);
 
     if (wo) {
@@ -1231,7 +1234,7 @@ ggml_tensor * llm_graph_context::build_attn(
         cur = ggml_add(ctx0, cur, wo_b);
     }
 
-    return cur;
+    return {cur, result.kq};
 }
 
 llm_graph_input_attn_kv_unified * llm_graph_context::build_attn_inp_kv_unified() const {
@@ -1254,7 +1257,7 @@ llm_graph_input_attn_kv_unified * llm_graph_context::build_attn_inp_kv_unified()
     return (llm_graph_input_attn_kv_unified *) res->add_input(std::move(inp));
 }
 
-ggml_tensor * llm_graph_context::build_attn(
+attn_mha_result llm_graph_context::build_attn(
         llm_graph_input_attn_kv_unified * inp,
         ggml_cgraph * gf,
         ggml_tensor * wo,
@@ -1286,7 +1289,9 @@ ggml_tensor * llm_graph_context::build_attn(
     ggml_tensor * k = kv_state->get_k(ctx0, il);
     ggml_tensor * v = kv_state->get_v(ctx0, il);
 
-    ggml_tensor * cur = build_attn_mha(gf, q, k, v, kq_b, kq_mask, v_mla, kq_scale);
+    auto result = build_attn_mha(gf, q, k, v, kq_b, kq_mask, v_mla, kq_scale);
+    ggml_tensor * cur = result.kq;
+
     cb(cur, "kqv_out", il);
 
     if (wo) {
@@ -1301,7 +1306,7 @@ ggml_tensor * llm_graph_context::build_attn(
         cur = ggml_add(ctx0, cur, wo_b);
     }
 
-    return cur;
+    return {cur, result.kq};
 }
 
 llm_graph_input_attn_kv_unified_iswa * llm_graph_context::build_attn_inp_kv_unified_iswa() const {
@@ -1334,7 +1339,7 @@ llm_graph_input_attn_kv_unified_iswa * llm_graph_context::build_attn_inp_kv_unif
     return (llm_graph_input_attn_kv_unified_iswa *) res->add_input(std::move(inp));
 }
 
-ggml_tensor * llm_graph_context::build_attn(
+attn_mha_result llm_graph_context::build_attn(
         llm_graph_input_attn_kv_unified_iswa * inp,
         ggml_cgraph * gf,
         ggml_tensor * wo,
@@ -1370,7 +1375,9 @@ ggml_tensor * llm_graph_context::build_attn(
     ggml_tensor * k = kv_state->get_k(ctx0, il);
     ggml_tensor * v = kv_state->get_v(ctx0, il);
 
-    ggml_tensor * cur = build_attn_mha(gf, q, k, v, kq_b, kq_mask, v_mla, kq_scale);
+    auto result = build_attn_mha(gf, q, k, v, kq_b, kq_mask, v_mla, kq_scale);
+    ggml_tensor * cur = result.kqv;
+
     cb(cur, "kqv_out", il);
 
     if (wo) {
@@ -1385,7 +1392,7 @@ ggml_tensor * llm_graph_context::build_attn(
         cur = ggml_add(ctx0, cur, wo_b);
     }
 
-    return cur;
+    return {cur, result.kq};
 }
 
 llm_graph_input_attn_cross * llm_graph_context::build_attn_inp_cross() const {
@@ -1401,7 +1408,7 @@ llm_graph_input_attn_cross * llm_graph_context::build_attn_inp_cross() const {
     return (llm_graph_input_attn_cross *) res->add_input(std::move(inp));
 }
 
-ggml_tensor * llm_graph_context::build_attn(
+attn_mha_result llm_graph_context::build_attn(
         llm_graph_input_attn_cross * inp,
         ggml_cgraph * gf,
         ggml_tensor * wo,
@@ -1425,7 +1432,9 @@ ggml_tensor * llm_graph_context::build_attn(
     ggml_tensor * k = k_cur;
     ggml_tensor * v = v_cur;
 
-    ggml_tensor * cur = build_attn_mha(gf, q, k, v, kq_b, kq_mask, v_mla, kq_scale);
+    auto result = build_attn_mha(gf, q, k, v, kq_b, kq_mask, v_mla, kq_scale);
+    ggml_tensor * cur = result.kqv;
+
     cb(cur, "kqv_out", il);
 
     if (wo) {
@@ -1440,7 +1449,7 @@ ggml_tensor * llm_graph_context::build_attn(
         cur = ggml_add(ctx0, cur, wo_b);
     }
 
-    return cur;
+    return {cur, result.kq};
 }
 
 ggml_tensor * llm_graph_context::build_copy_mask_state(

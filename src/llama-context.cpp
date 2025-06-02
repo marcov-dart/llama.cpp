@@ -833,6 +833,34 @@ int llama_context::encode(llama_batch & inp_batch) {
         }
     }
 
+    {
+        int attention_count = res->attention_count();
+        auto * attention = res->get_attention_index(attention_count - 1);
+
+        LLAMA_LOG_INFO("%s: %s %s\n", __func__, attention->name, ggml_type_name(attention->type));
+        LLAMA_LOG_INFO("%s: attention count %d\n", __func__, attention_count);
+
+        ggml_backend_t backend = ggml_backend_sched_get_tensor_backend(sched.get(), attention);
+        GGML_ASSERT(backend != nullptr);
+
+        int64_t n_elements = ggml_nelements(attention);
+        size_t type_size = ggml_type_size(attention->type);
+        size_t total_size = n_elements * type_size;
+
+        float * t = (float*) malloc(n_elements * sizeof(float));
+
+        ggml_backend_tensor_get(attention, t,  0, total_size);
+
+        float * z = t;
+        for (int i = 0; i < 16; i++) {
+          LLAMA_LOG_INFO("%s: %s %12.4f\n", __func__, attention->name, *z);
+
+          z++;
+        }
+
+        LLAMA_LOG_INFO("%s\n", __func__);
+    }
+
     // Reset state for the next token before backend sync, to allow the CPU activities in the reset to
     // overlap with device computation.
     ggml_backend_sched_reset(sched.get());
